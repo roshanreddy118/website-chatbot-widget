@@ -40,11 +40,45 @@ ALLOWED_ORIGINS=https://example.com,https://www.example.com
 
 - `GEMINI_API_KEY`: Google AI Studio API key.
 - `GEMINI_MODEL`: Defaults to `gemini-2.5-flash`.
+- `EMBEDDING_MODEL`: Defaults to `gemini-embedding-001`.
 - `HOST`: Defaults to `127.0.0.1`.
 - `BOT_NAME`: Display name and reply persona.
 - `BOT_INSTRUCTIONS`: System-style guidance added before each Gemini request.
 - `ALLOWED_ORIGINS`: Comma-separated list of allowed website origins. Leave empty during local development only.
+- `SITE_URL`: Website to crawl for RAG context, for example `https://www.aibuzzer.buzz`.
+- `RAG_INDEX_PATH`: Defaults to `data/knowledge-base.json`.
+- `MAX_CRAWL_PAGES`: Defaults to `40`.
 
 ## Notes
 
-This is an embeddable chat widget, not document retrieval yet. If you want the bot to answer from each website's pages or uploaded documents, the next step is adding crawling plus vector search/RAG.
+## Website Knowledge / RAG
+
+Build the website knowledge index before deploying:
+
+```bash
+SITE_URL=https://www.aibuzzer.buzz npm run index
+```
+
+This crawls the site, creates Gemini embeddings, and writes `data/knowledge-base.json`.
+
+On Vercel, set these environment variables in the chatbot project:
+
+```bash
+GEMINI_API_KEY=your_google_ai_studio_api_key
+SITE_URL=https://www.aibuzzer.buzz
+ALLOWED_ORIGINS=https://www.aibuzzer.buzz,https://aibuzzer.buzz
+```
+
+Then set the Vercel build command to:
+
+```bash
+npm run build
+```
+
+The chat API retrieves the most relevant indexed snippets and sends them to Gemini with each user question.
+
+Check deployed index status:
+
+```bash
+curl https://your-chatbot-domain.vercel.app/api/knowledge
+```
