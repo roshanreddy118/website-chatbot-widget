@@ -88,3 +88,6 @@ Check deployed index status:
 ```bash
 curl https://your-chatbot-domain.vercel.app/api/knowledge
 ```
+
+If `enabled` is `false`, check the latest Vercel deployment logs for the `npm run index`
+step. The function bundle must include `data/knowledge-base.json`.

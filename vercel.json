@@ -2,6 +2,11 @@
   "version": 2,
   "buildCommand": "npm run build",
   "installCommand": "npm install && npm run index",
+  "functions": {
+    "server.js": {
+      "includeFiles": "data/knowledge-base.json"
+    }
+  },
   "builds": [
     {
       "src": "server.js",

@@ -64,6 +64,8 @@ app.get("/api/knowledge", (_req, res) => {
 
   res.json({
     enabled: Boolean(index?.chunks?.length),
+    path: ragIndexPath,
+    fileExists: fs.existsSync(ragIndexPath),
     siteUrl: index?.siteUrl || null,
     generatedAt: index?.generatedAt || null,
     pageCount: index?.pageCount || 0,
