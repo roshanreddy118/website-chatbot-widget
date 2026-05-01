@@ -1,16 +1,16 @@
 {
   "version": 2,
   "buildCommand": "npm run build",
-  "installCommand": "npm install && npm run index",
-  "functions": {
-    "server.js": {
-      "includeFiles": "data/knowledge-base.json"
-    }
-  },
+  "installCommand": "npm install",
   "builds": [
     {
       "src": "server.js",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "data/knowledge-base.json"
+        ]
+      }
     },
     {
       "src": "public/**",

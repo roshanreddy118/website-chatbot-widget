@@ -11,12 +11,13 @@ const maxPages = Number(process.env.MAX_CRAWL_PAGES || 40);
 const chunkSize = Number(process.env.RAG_CHUNK_SIZE || 1400);
 const chunkOverlap = Number(process.env.RAG_CHUNK_OVERLAP || 180);
 
-if (!process.env.GEMINI_API_KEY) {
-  throw new Error("Missing GEMINI_API_KEY. Add it to .env or Vercel before building the index.");
-}
-
-if (!siteUrl) {
-  throw new Error("Missing SITE_URL. Example: SITE_URL=https://www.aibuzzer.buzz npm run index");
+if (!process.env.GEMINI_API_KEY || !siteUrl) {
+  await writeEmptyIndex(
+    !process.env.GEMINI_API_KEY
+      ? "Missing GEMINI_API_KEY."
+      : "Missing SITE_URL. Example: SITE_URL=https://www.aibuzzer.buzz npm run index"
+  );
+  process.exit(0);
 }
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -40,7 +41,8 @@ for (const url of urls.slice(0, maxPages)) {
 const chunks = pages.flatMap((page) => chunkPage(page, chunkSize, chunkOverlap));
 
 if (chunks.length === 0) {
-  throw new Error("No readable page content found. Check SITE_URL or sitemap access.");
+  await writeEmptyIndex("No readable page content found. Check SITE_URL or sitemap access.");
+  process.exit(0);
 }
 
 const embeddedChunks = [];
@@ -74,6 +76,23 @@ await fs.mkdir(path.dirname(outputPath), { recursive: true });
 await fs.writeFile(outputPath, `${JSON.stringify(index)}\n`);
 
 console.log(`Wrote ${embeddedChunks.length} chunks from ${pages.length} pages to ${outputPath}`);
+
+async function writeEmptyIndex(reason) {
+  const index = {
+    siteUrl: siteUrl || null,
+    embeddingModel,
+    outputDimensionality: 768,
+    generatedAt: new Date().toISOString(),
+    pageCount: 0,
+    chunkCount: 0,
+    warning: reason,
+    chunks: []
+  };
+
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, `${JSON.stringify(index)}\n`);
+  console.warn(`Wrote empty knowledge index: ${reason}`);
+}
 
 async function discoverUrls(rootUrl) {
   const sitemapUrls = await readSitemap(rootUrl);

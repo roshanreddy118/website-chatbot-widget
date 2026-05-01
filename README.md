@@ -78,7 +78,7 @@ npm run build
 And the install command to:
 
 ```bash
-npm install && npm run index
+npm install
 ```
 
 The chat API retrieves the most relevant indexed snippets and sends them to Gemini with each user question.
