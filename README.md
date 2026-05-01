@@ -16,7 +16,7 @@ npm run dev
 
 Open `http://localhost:3000` to test the widget.
 
-## Embed On Any Website
+## Embed On Any Website 
 
 Deploy this server, then add this to the target website:
 
