@@ -222,8 +222,18 @@ async function retrieveContext(query) {
   }
 
   const queryTerms = extractTerms(query);
+  const sourceMatches = findMentionedSources(query);
+  const sourceChunks = sourceMatches.flatMap((source) =>
+    index.chunks
+      .filter((chunk) => chunkMatchesSource(chunk, source))
+      .slice(0, 8)
+      .map((chunk) => ({
+        ...chunk,
+        score: 2
+      }))
+  );
 
-  return index.chunks
+  const semanticChunks = index.chunks
     .map((chunk) => {
       const semanticScore = cosineSimilarity(queryEmbedding, chunk.embedding);
       const keywordScore = keywordMatchScore(queryTerms, `${chunk.title} ${chunk.text}`);
@@ -236,6 +246,8 @@ async function retrieveContext(query) {
     .sort((left, right) => right.score - left.score)
     .slice(0, 8)
     .filter((chunk) => chunk.score > 0.35);
+
+  return dedupeChunks([...sourceChunks, ...semanticChunks]).slice(0, 10);
 }
 
 async function getKnowledgeBase() {
@@ -508,6 +520,43 @@ function keywordMatchScore(queryTerms, value) {
   }
 
   return Math.min(score, 0.48);
+}
+
+function findMentionedSources(query) {
+  const queryText = String(query || "").toLowerCase();
+
+  return trackedSources.filter((source) => {
+    const sourceTerms = [source.name, slugify(source.name), ...source.name.split(/\s+/)]
+      .map((term) => term.toLowerCase())
+      .filter((term) => term.length > 2);
+
+    return sourceTerms.some((term) => queryText.includes(term));
+  });
+}
+
+function chunkMatchesSource(chunk, source) {
+  const needle = source.name.toLowerCase();
+  const text = `${chunk.title}\n${chunk.text}`.toLowerCase();
+
+  return text.includes(`source: ${needle}`) || text.includes(needle);
+}
+
+function dedupeChunks(chunks) {
+  const seen = new Set();
+  const deduped = [];
+
+  for (const chunk of chunks) {
+    const key = chunk.id || `${chunk.title}:${chunk.url}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(chunk);
+  }
+
+  return deduped;
 }
 
 async function discoverUrls(rootUrl) {
