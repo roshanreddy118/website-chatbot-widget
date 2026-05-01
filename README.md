@@ -60,6 +60,8 @@ SITE_URL=https://www.aibuzzer.buzz npm run index
 ```
 
 This crawls the site, creates Gemini embeddings, and writes `data/knowledge-base.json`.
+On Vercel, the server can also build the index in memory on first use when that
+file is not present in the deployed function.
 
 On Vercel, set these environment variables in the chatbot project:
 
@@ -89,5 +91,5 @@ Check deployed index status:
 curl https://your-chatbot-domain.vercel.app/api/knowledge
 ```
 
-If `enabled` is `false`, check the latest Vercel deployment logs for the `npm run index`
-step. The function bundle must include `data/knowledge-base.json`.
+If `enabled` is `false`, check that `GEMINI_API_KEY` and `SITE_URL` are set in
+the chatbot Vercel project.

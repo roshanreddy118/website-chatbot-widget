@@ -5,12 +5,7 @@
   "builds": [
     {
       "src": "server.js",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [
-          "data/knowledge-base.json"
-        ]
-      }
+      "use": "@vercel/node"
     },
     {
       "src": "public/**",
