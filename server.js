@@ -15,7 +15,7 @@ const botInstructions =
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
-  .map((origin) => origin.trim())
+  .map((origin) => normalizeOrigin(origin))
   .filter(Boolean);
 
 let ai;
@@ -32,12 +32,18 @@ app.use(express.static("public"));
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      const normalizedOrigin = normalizeOrigin(origin);
+
+      if (
+        !normalizedOrigin ||
+        allowedOrigins.length === 0 ||
+        allowedOrigins.includes(normalizedOrigin)
+      ) {
         callback(null, true);
         return;
       }
 
-      callback(new Error("Origin not allowed by ALLOWED_ORIGINS"));
+      callback(null, false);
     }
   })
 );
@@ -128,4 +134,10 @@ Conversation:
 ${transcript}
 
 Reply as ${botName}.`;
+}
+
+function normalizeOrigin(origin) {
+  return String(origin || "")
+    .trim()
+    .replace(/\/+$/, "");
 }
