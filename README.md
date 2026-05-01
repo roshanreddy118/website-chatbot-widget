@@ -6,7 +6,7 @@ Embeddable chatbot starter for websites using Google AI Studio / Gemini. The bro
 
 1. Create a Gemini API key in Google AI Studio.
 2. Copy `.env.example` to `.env`.
-3. Set `GEMINI_API_KEY`.
+3. Set `GEMINI_API_KEY`. 
 4. Install and run:
 
 ```bash
