@@ -25,6 +25,48 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => normalizeOrigin(origin))
   .filter(Boolean);
+const trackedSources = [
+  {
+    name: "OpenAI",
+    description: "Models, APIs, ChatGPT, safety, platform launches",
+    latest: "Apr 30, 2026, 5:30 AM"
+  },
+  {
+    name: "Anthropic",
+    description: "Claude models, enterprise launches, policy, safety",
+    latest: "Apr 28, 2026, 5:30 AM"
+  },
+  {
+    name: "Google AI",
+    description: "Gemini, AI Mode, Workspace AI, developer tooling",
+    latest: "Apr 28, 2026, 9:30 PM"
+  },
+  {
+    name: "Google DeepMind",
+    description: "Research, multimodal models, robotics, science",
+    latest: "Feb 1, 2026, 5:30 AM"
+  },
+  {
+    name: "Meta AI",
+    description: "Llama, research, open models, consumer AI",
+    latest: "Apr 8, 2026, 5:30 AM"
+  },
+  {
+    name: "Mistral AI",
+    description: "Frontier models, enterprise releases, open weights",
+    latest: "Apr 30, 2026, 3:26 AM"
+  },
+  {
+    name: "Microsoft Research",
+    description: "AI research, language models, agents, cloud AI, enterprise",
+    latest: "May 1, 2026, 3:23 AM"
+  },
+  {
+    name: "Hugging Face",
+    description: "Open-source releases, tooling, research, community",
+    latest: "Apr 29, 2026, 10:15 PM"
+  }
+];
 
 let ai;
 let knowledgeBase;
@@ -171,14 +213,21 @@ async function retrieveContext(query) {
     return [];
   }
 
+  const queryTerms = extractTerms(query);
+
   return index.chunks
-    .map((chunk) => ({
-      ...chunk,
-      score: cosineSimilarity(queryEmbedding, chunk.embedding)
-    }))
+    .map((chunk) => {
+      const semanticScore = cosineSimilarity(queryEmbedding, chunk.embedding);
+      const keywordScore = keywordMatchScore(queryTerms, `${chunk.title} ${chunk.text}`);
+
+      return {
+        ...chunk,
+        score: semanticScore + keywordScore
+      };
+    })
     .sort((left, right) => right.score - left.score)
-    .slice(0, 5)
-    .filter((chunk) => chunk.score > 0.45);
+    .slice(0, 8)
+    .filter((chunk) => chunk.score > 0.35);
 }
 
 async function getKnowledgeBase() {
@@ -244,7 +293,10 @@ async function buildRuntimeKnowledgeBase() {
     }
   }
 
-  const chunks = pages.flatMap((page) => chunkPage(page));
+  const chunks = [
+    ...buildTrackedSourceChunks(),
+    ...pages.flatMap((page) => chunkPage(page))
+  ];
   const embeddedChunks = [];
 
   for (const batch of batchItems(chunks, 20)) {
@@ -286,10 +338,19 @@ function buildPrompt(messages, context = []) {
         )
         .join("\n\n")
     : "No indexed website context was found for this question.";
+  const trackedSourceContext = trackedSources
+    .map(
+      (source) =>
+        `- ${source.name}: ${source.description}. 6 recent items available. Latest: ${source.latest}.`
+    )
+    .join("\n");
 
   return `${botInstructions}
 
 Use the indexed website context below when it is relevant. If the context does not contain the answer, say that the indexed site content does not include that detail yet.
+
+AIBuzzer tracked official source channels:
+${trackedSourceContext}
 
 Indexed website context:
 ${sourceContext}
@@ -316,6 +377,50 @@ function cosineSimilarity(left, right) {
   }
 
   return dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude) || 1);
+}
+
+function buildTrackedSourceChunks() {
+  return [
+    {
+      id: `${siteUrl || "aibuzzer"}#tracked-sources`,
+      url: siteUrl || "",
+      title: "AIBuzzer tracked official source channels",
+      text: `AIBuzzer tracks these official channels: ${trackedSources
+        .map(
+          (source) =>
+            `${source.name} (${source.description}; 6 recent items available; latest ${source.latest})`
+        )
+        .join("; ")}.`
+    },
+    ...trackedSources.map((source) => ({
+      id: `${siteUrl || "aibuzzer"}#source-${slugify(source.name)}`,
+      url: siteUrl || "",
+      title: `${source.name} source health`,
+      text: `${source.name}: ${source.description}. AIBuzzer tracks this official channel. 6 recent items available. Latest item: ${source.latest}.`
+    }))
+  ];
+}
+
+function extractTerms(value) {
+  return new Set(
+    String(value || "")
+      .toLowerCase()
+      .match(/[a-z0-9]+/g)
+      ?.filter((term) => term.length > 2) || []
+  );
+}
+
+function keywordMatchScore(queryTerms, value) {
+  const haystack = String(value || "").toLowerCase();
+  let score = 0;
+
+  for (const term of queryTerms) {
+    if (haystack.includes(term)) {
+      score += 0.12;
+    }
+  }
+
+  return Math.min(score, 0.48);
 }
 
 async function discoverUrls(rootUrl) {
@@ -461,6 +566,13 @@ function normalizeSiteUrl(value) {
   } catch {
     return "";
   }
+}
+
+function slugify(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function decodeXml(value) {
