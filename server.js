@@ -79,7 +79,6 @@ const trackedSources = [
 let ai;
 let knowledgeBase;
 let knowledgeBasePromise;
-const liveSourceCache = new Map();
 
 app.use(
   helmet({
@@ -224,7 +223,7 @@ async function retrieveContext(query) {
 
   const queryTerms = extractTerms(query);
 
-  const semanticChunks = index.chunks
+  return index.chunks
     .map((chunk) => {
       const semanticScore = cosineSimilarity(queryEmbedding, chunk.embedding);
       const keywordScore = keywordMatchScore(queryTerms, `${chunk.title} ${chunk.text}`);
@@ -237,9 +236,6 @@ async function retrieveContext(query) {
     .sort((left, right) => right.score - left.score)
     .slice(0, 8)
     .filter((chunk) => chunk.score > 0.35);
-  const liveSourceChunks = await fetchMentionedSourceChunks(query);
-
-  return [...liveSourceChunks, ...semanticChunks].slice(0, 10);
 }
 
 async function getKnowledgeBase() {
@@ -438,7 +434,7 @@ function buildPrompt(messages, context = []) {
 
   return `${botInstructions}
 
-Use the indexed website context below when it is relevant. If the context does not contain the answer, say that the indexed site content does not include that detail yet.
+Use only the indexed AIBuzzer dashboard context below. Do not claim to browse or summarize external source websites. If AIBuzzer's displayed data does not contain the requested details, say that AIBuzzer does not show those details in the current dashboard data.
 
 AIBuzzer tracked official source channels:
 ${trackedSourceContext}
@@ -490,102 +486,6 @@ function buildTrackedSourceChunks() {
       text: `${source.name}: ${source.description}. AIBuzzer tracks this official channel at ${source.siteUrl}. 6 recent items available. Latest item: ${source.latest}.`
     }))
   ];
-}
-
-async function fetchMentionedSourceChunks(query) {
-  const queryText = String(query || "").toLowerCase();
-  const matches = trackedSources.filter((source) => {
-    const sourceTerms = [source.name, ...source.name.split(/\s+/), slugify(source.name)]
-      .map((term) => term.toLowerCase())
-      .filter((term) => term.length > 2);
-
-    return sourceTerms.some((term) => queryText.includes(term));
-  });
-
-  const chunks = [];
-
-  for (const source of matches.slice(0, 2)) {
-    chunks.push(...(await fetchLiveSourceChunks(source)));
-  }
-
-  return chunks;
-}
-
-async function fetchLiveSourceChunks(source) {
-  const cacheKey = source.name;
-
-  if (liveSourceCache.has(cacheKey)) {
-    return liveSourceCache.get(cacheKey);
-  }
-
-  try {
-    const html = await fetchText(source.siteUrl);
-    const items = extractSourceItems(html, source.siteUrl).slice(0, 8);
-    const text = items.length
-      ? `${source.name} official source items:\n${items
-          .map((item, index) => `${index + 1}. ${item.title} - ${item.url}`)
-          .join("\n")}`
-      : `${source.name} official source page: ${cleanText(cheerio.load(html)("body").text()).slice(0, 2400)}`;
-    const chunks = [
-      {
-        id: `live-source-${slugify(source.name)}`,
-        url: source.siteUrl,
-        title: `${source.name} official source updates`,
-        text,
-        score: 1.2
-      }
-    ];
-
-    liveSourceCache.set(cacheKey, chunks);
-    return chunks;
-  } catch (error) {
-    console.warn(`Could not fetch ${source.name} source page: ${error.message}`);
-    return [];
-  }
-}
-
-function extractSourceItems(html, baseUrl) {
-  const $ = cheerio.load(html);
-  const items = [];
-  const seen = new Set();
-
-  $("a[href]").each((_, element) => {
-    const title = cleanText($(element).text());
-
-    if (title.length < 8) {
-      return;
-    }
-
-    addSourceItem(items, seen, title, $(element).attr("href"), baseUrl);
-  });
-
-  for (const match of html.matchAll(/"value":"(https?:\\?\/\\?\/[^"]+)","label":"Read\s+([^"]+)"/g)) {
-    addSourceItem(items, seen, decodeJsonish(match[2]), decodeJsonish(match[1]), baseUrl);
-  }
-
-  for (const match of html.matchAll(/"label":"Read\s+([^"]+)","page_location":"[^"]+"/g)) {
-    addSourceItem(items, seen, decodeJsonish(match[1]), baseUrl, baseUrl);
-  }
-
-  return items;
-}
-
-function addSourceItem(items, seen, title, href, baseUrl) {
-  try {
-    const url = new URL(decodeJsonish(href), baseUrl);
-    const cleanTitle = cleanText(decodeJsonish(title).replace(/^Read\s+/i, ""));
-    const key = `${cleanTitle}:${url.href}`;
-
-    if (!cleanTitle || seen.has(key)) {
-      return;
-    }
-
-    seen.add(key);
-    items.push({
-      title: cleanTitle,
-      url: url.href
-    });
-  } catch {}
 }
 
 function extractTerms(value) {
@@ -791,10 +691,6 @@ function decodeHtml(value) {
     .replace(/&quot;/g, '"')
     .replace(/&#x27;/g, "'")
     .replace(/&#39;/g, "'");
-}
-
-function decodeJsonish(value) {
-  return decodeHtml(String(value || "").replace(/\\\//g, "/").replace(/\\"/g, '"'));
 }
 
 function decodeXml(value) {
