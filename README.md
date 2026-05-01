@@ -75,6 +75,12 @@ Then set the Vercel build command to:
 npm run build
 ```
 
+And the install command to:
+
+```bash
+npm install && npm run index
+```
+
 The chat API retrieves the most relevant indexed snippets and sends them to Gemini with each user question.
 
 Check deployed index status:
