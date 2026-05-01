@@ -28,41 +28,49 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
 const trackedSources = [
   {
     name: "OpenAI",
+    siteUrl: "https://openai.com/newsroom/",
     description: "Models, APIs, ChatGPT, safety, platform launches",
     latest: "Apr 30, 2026, 5:30 AM"
   },
   {
     name: "Anthropic",
+    siteUrl: "https://www.anthropic.com/news",
     description: "Claude models, enterprise launches, policy, safety",
     latest: "Apr 28, 2026, 5:30 AM"
   },
   {
     name: "Google AI",
+    siteUrl: "https://blog.google/technology/ai/",
     description: "Gemini, AI Mode, Workspace AI, developer tooling",
     latest: "Apr 28, 2026, 9:30 PM"
   },
   {
     name: "Google DeepMind",
+    siteUrl: "https://deepmind.google/",
     description: "Research, multimodal models, robotics, science",
     latest: "Feb 1, 2026, 5:30 AM"
   },
   {
     name: "Meta AI",
+    siteUrl: "https://ai.meta.com/blog/",
     description: "Llama, research, open models, consumer AI",
     latest: "Apr 8, 2026, 5:30 AM"
   },
   {
     name: "Mistral AI",
+    siteUrl: "https://mistral.ai/news",
     description: "Frontier models, enterprise releases, open weights",
     latest: "Apr 30, 2026, 3:26 AM"
   },
   {
     name: "Microsoft Research",
+    siteUrl: "https://www.microsoft.com/en-us/research/blog/",
     description: "AI research, language models, agents, cloud AI, enterprise",
     latest: "May 1, 2026, 3:23 AM"
   },
   {
     name: "Hugging Face",
+    siteUrl: "https://huggingface.co/blog",
     description: "Open-source releases, tooling, research, community",
     latest: "Apr 29, 2026, 10:15 PM"
   }
@@ -71,6 +79,7 @@ const trackedSources = [
 let ai;
 let knowledgeBase;
 let knowledgeBasePromise;
+const liveSourceCache = new Map();
 
 app.use(
   helmet({
@@ -215,7 +224,7 @@ async function retrieveContext(query) {
 
   const queryTerms = extractTerms(query);
 
-  return index.chunks
+  const semanticChunks = index.chunks
     .map((chunk) => {
       const semanticScore = cosineSimilarity(queryEmbedding, chunk.embedding);
       const keywordScore = keywordMatchScore(queryTerms, `${chunk.title} ${chunk.text}`);
@@ -228,6 +237,9 @@ async function retrieveContext(query) {
     .sort((left, right) => right.score - left.score)
     .slice(0, 8)
     .filter((chunk) => chunk.score > 0.35);
+  const liveSourceChunks = await fetchMentionedSourceChunks(query);
+
+  return [...liveSourceChunks, ...semanticChunks].slice(0, 10);
 }
 
 async function getKnowledgeBase() {
@@ -293,8 +305,10 @@ async function buildRuntimeKnowledgeBase() {
     }
   }
 
+  const apiChunks = await fetchAibuzzerApiChunks();
   const chunks = [
     ...buildTrackedSourceChunks(),
+    ...apiChunks,
     ...pages.flatMap((page) => chunkPage(page))
   ];
   const embeddedChunks = [];
@@ -324,6 +338,83 @@ async function buildRuntimeKnowledgeBase() {
     chunks: embeddedChunks,
     warning: embeddedChunks.length ? null : "No readable website content was indexed."
   };
+}
+
+async function fetchAibuzzerApiChunks() {
+  if (!siteUrl) {
+    return [];
+  }
+
+  try {
+    const response = await fetch(new URL("/api/updates", siteUrl), {
+      headers: {
+        "User-Agent": "website-chatbot-widget/0.1"
+      }
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const snapshot = await response.json();
+    const chunks = [];
+
+    if (Array.isArray(snapshot.updates)) {
+      chunks.push(
+        ...snapshot.updates.map((update) => ({
+          id: `aibuzzer-update-${slugify(update.id || update.title)}`,
+          url: update.url || siteUrl,
+          title: `${update.sourceName || "AIBuzzer"}: ${update.title}`,
+          text: [
+            `Source: ${update.sourceName}`,
+            `Category: ${update.category}`,
+            `Impact area: ${update.impactArea}`,
+            `Published: ${formatIsoDate(update.publishedAt)}`,
+            `Title: ${update.title}`,
+            `Summary: ${decodeHtml(update.excerpt || "")}`,
+            `Impact: ${decodeHtml(update.impact || "")}`,
+            `URL: ${update.url}`
+          ]
+            .filter(Boolean)
+            .join("\n")
+        }))
+      );
+    }
+
+    if (Array.isArray(snapshot.sourceStatuses)) {
+      chunks.push(
+        ...snapshot.sourceStatuses.map((source) => ({
+          id: `aibuzzer-source-${slugify(source.id || source.name)}`,
+          url: source.siteUrl || siteUrl,
+          title: `${source.name} source health`,
+          text: [
+            `Source: ${source.name}`,
+            `Focus: ${source.focus}`,
+            `Official channel: ${source.siteUrl}`,
+            `Status: ${source.ok ? "healthy" : "unavailable"}`,
+            `Recent items available: ${source.itemCount}`,
+            `Latest item: ${formatIsoDate(source.latestPublishedAt)}`
+          ]
+            .filter(Boolean)
+            .join("\n")
+        }))
+      );
+    }
+
+    if (Array.isArray(snapshot.briefing)) {
+      chunks.push({
+        id: "aibuzzer-executive-briefing",
+        url: siteUrl,
+        title: "AIBuzzer executive briefing",
+        text: snapshot.briefing.map((item, index) => `${index + 1}. ${item}`).join("\n")
+      });
+    }
+
+    return chunks;
+  } catch (error) {
+    console.warn(`Could not fetch AIBuzzer API updates: ${error.message}`);
+    return [];
+  }
 }
 
 function buildPrompt(messages, context = []) {
@@ -388,17 +479,113 @@ function buildTrackedSourceChunks() {
       text: `AIBuzzer tracks these official channels: ${trackedSources
         .map(
           (source) =>
-            `${source.name} (${source.description}; 6 recent items available; latest ${source.latest})`
+            `${source.name} (${source.description}; official source ${source.siteUrl}; 6 recent items available; latest ${source.latest})`
         )
         .join("; ")}.`
     },
     ...trackedSources.map((source) => ({
       id: `${siteUrl || "aibuzzer"}#source-${slugify(source.name)}`,
-      url: siteUrl || "",
+      url: source.siteUrl,
       title: `${source.name} source health`,
-      text: `${source.name}: ${source.description}. AIBuzzer tracks this official channel. 6 recent items available. Latest item: ${source.latest}.`
+      text: `${source.name}: ${source.description}. AIBuzzer tracks this official channel at ${source.siteUrl}. 6 recent items available. Latest item: ${source.latest}.`
     }))
   ];
+}
+
+async function fetchMentionedSourceChunks(query) {
+  const queryText = String(query || "").toLowerCase();
+  const matches = trackedSources.filter((source) => {
+    const sourceTerms = [source.name, ...source.name.split(/\s+/), slugify(source.name)]
+      .map((term) => term.toLowerCase())
+      .filter((term) => term.length > 2);
+
+    return sourceTerms.some((term) => queryText.includes(term));
+  });
+
+  const chunks = [];
+
+  for (const source of matches.slice(0, 2)) {
+    chunks.push(...(await fetchLiveSourceChunks(source)));
+  }
+
+  return chunks;
+}
+
+async function fetchLiveSourceChunks(source) {
+  const cacheKey = source.name;
+
+  if (liveSourceCache.has(cacheKey)) {
+    return liveSourceCache.get(cacheKey);
+  }
+
+  try {
+    const html = await fetchText(source.siteUrl);
+    const items = extractSourceItems(html, source.siteUrl).slice(0, 8);
+    const text = items.length
+      ? `${source.name} official source items:\n${items
+          .map((item, index) => `${index + 1}. ${item.title} - ${item.url}`)
+          .join("\n")}`
+      : `${source.name} official source page: ${cleanText(cheerio.load(html)("body").text()).slice(0, 2400)}`;
+    const chunks = [
+      {
+        id: `live-source-${slugify(source.name)}`,
+        url: source.siteUrl,
+        title: `${source.name} official source updates`,
+        text,
+        score: 1.2
+      }
+    ];
+
+    liveSourceCache.set(cacheKey, chunks);
+    return chunks;
+  } catch (error) {
+    console.warn(`Could not fetch ${source.name} source page: ${error.message}`);
+    return [];
+  }
+}
+
+function extractSourceItems(html, baseUrl) {
+  const $ = cheerio.load(html);
+  const items = [];
+  const seen = new Set();
+
+  $("a[href]").each((_, element) => {
+    const title = cleanText($(element).text());
+
+    if (title.length < 8) {
+      return;
+    }
+
+    addSourceItem(items, seen, title, $(element).attr("href"), baseUrl);
+  });
+
+  for (const match of html.matchAll(/"value":"(https?:\\?\/\\?\/[^"]+)","label":"Read\s+([^"]+)"/g)) {
+    addSourceItem(items, seen, decodeJsonish(match[2]), decodeJsonish(match[1]), baseUrl);
+  }
+
+  for (const match of html.matchAll(/"label":"Read\s+([^"]+)","page_location":"[^"]+"/g)) {
+    addSourceItem(items, seen, decodeJsonish(match[1]), baseUrl, baseUrl);
+  }
+
+  return items;
+}
+
+function addSourceItem(items, seen, title, href, baseUrl) {
+  try {
+    const url = new URL(decodeJsonish(href), baseUrl);
+    const cleanTitle = cleanText(decodeJsonish(title).replace(/^Read\s+/i, ""));
+    const key = `${cleanTitle}:${url.href}`;
+
+    if (!cleanTitle || seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    items.push({
+      title: cleanTitle,
+      url: url.href
+    });
+  } catch {}
 }
 
 function extractTerms(value) {
@@ -573,6 +760,41 @@ function slugify(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function formatIsoDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Kolkata"
+  });
+}
+
+function decodeHtml(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'");
+}
+
+function decodeJsonish(value) {
+  return decodeHtml(String(value || "").replace(/\\\//g, "/").replace(/\\"/g, '"'));
 }
 
 function decodeXml(value) {
